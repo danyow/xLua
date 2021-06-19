@@ -23,16 +23,6 @@
 #include "stringbuffer.h"
 #include <new>      // placement new
 
-#if defined(RAPIDJSON_SIMD) && defined(_MSC_VER)
-#include <intrin.h>
-#pragma intrinsic(_BitScanForward)
-#endif
-#ifdef RAPIDJSON_SSE42
-#include <nmmintrin.h>
-#elif defined(RAPIDJSON_SSE2)
-#include <emmintrin.h>
-#endif
-
 #ifdef _MSC_VER
 RAPIDJSON_DIAG_PUSH
 RAPIDJSON_DIAG_OFF(4127) // conditional expression is constant
@@ -41,7 +31,6 @@ RAPIDJSON_DIAG_OFF(4127) // conditional expression is constant
 #ifdef __clang__
 RAPIDJSON_DIAG_PUSH
 RAPIDJSON_DIAG_OFF(padded)
-RAPIDJSON_DIAG_OFF(unreachable-code)
 #endif
 
 RAPIDJSON_NAMESPACE_BEGIN
@@ -63,7 +52,6 @@ RAPIDJSON_NAMESPACE_BEGIN
 enum WriteFlag {
     kWriteNoFlags = 0,              //!< No flags are set.
     kWriteValidateEncodingFlag = 1, //!< Validate encoding of JSON strings.
-    kWriteNanAndInfFlag = 2,        //!< Allow writing of Infinity, -Infinity and NaN.
     kWriteDefaultFlags = RAPIDJSON_WRITE_DEFAULT_FLAGS  //!< Default write flags. Can be customized by defining RAPIDJSON_WRITE_DEFAULT_FLAGS
 };
 
@@ -88,8 +76,6 @@ class Writer {
 public:
     typedef typename SourceEncoding::Ch Ch;
 
-    static const int kDefaultMaxDecimalPlaces = 324;
-
     //! Constructor
     /*! \param os Output stream.
         \param stackAllocator User supplied allocator. If it is null, it will create a private one.
@@ -97,11 +83,11 @@ public:
     */
     explicit
     Writer(OutputStream& os, StackAllocator* stackAllocator = 0, size_t levelDepth = kDefaultLevelDepth) : 
-        os_(&os), level_stack_(stackAllocator, levelDepth * sizeof(Level)), maxDecimalPlaces_(kDefaultMaxDecimalPlaces), hasRoot_(false) {}
+        os_(&os), level_stack_(stackAllocator, levelDepth * sizeof(Level)), hasRoot_(false) {}
 
     explicit
     Writer(StackAllocator* allocator = 0, size_t levelDepth = kDefaultLevelDepth) :
-        os_(0), level_stack_(allocator, levelDepth * sizeof(Level)), maxDecimalPlaces_(kDefaultMaxDecimalPlaces), hasRoot_(false) {}
+        os_(0), level_stack_(allocator, levelDepth * sizeof(Level)), hasRoot_(false) {}
 
     //! Reset the writer with a new stream.
     /*!
@@ -135,64 +121,29 @@ public:
         return hasRoot_ && level_stack_.Empty();
     }
 
-    int GetMaxDecimalPlaces() const {
-        return maxDecimalPlaces_;
-    }
-
-    //! Sets the maximum number of decimal places for double output.
-    /*!
-        This setting truncates the output with specified number of decimal places.
-
-        For example, 
-
-        \code
-        writer.SetMaxDecimalPlaces(3);
-        writer.StartArray();
-        writer.Double(0.12345);                 // "0.123"
-        writer.Double(0.0001);                  // "0.0"
-        writer.Double(1.234567890123456e30);    // "1.234567890123456e30" (do not truncate significand for positive exponent)
-        writer.Double(1.23e-4);                 // "0.0"                  (do truncate significand for negative exponent)
-        writer.EndArray();
-        \endcode
-
-        The default setting does not truncate any decimal places. You can restore to this setting by calling
-        \code
-        writer.SetMaxDecimalPlaces(Writer::kDefaultMaxDecimalPlaces);
-        \endcode
-    */
-    void SetMaxDecimalPlaces(int maxDecimalPlaces) {
-        maxDecimalPlaces_ = maxDecimalPlaces;
-    }
-
     /*!@name Implementation of Handler
         \see Handler
     */
     //@{
 
-    bool Null()                 { Prefix(kNullType);   return EndValue(WriteNull()); }
-    bool Bool(bool b)           { Prefix(b ? kTrueType : kFalseType); return EndValue(WriteBool(b)); }
-    bool Int(int i)             { Prefix(kNumberType); return EndValue(WriteInt(i)); }
-    bool Uint(unsigned u)       { Prefix(kNumberType); return EndValue(WriteUint(u)); }
-    bool Int64(int64_t i64)     { Prefix(kNumberType); return EndValue(WriteInt64(i64)); }
-    bool Uint64(uint64_t u64)   { Prefix(kNumberType); return EndValue(WriteUint64(u64)); }
+    bool Null()                 { Prefix(kNullType);   return WriteNull(); }
+    bool Bool(bool b)           { Prefix(b ? kTrueType : kFalseType); return WriteBool(b); }
+    bool Int(int i)             { Prefix(kNumberType); return WriteInt(i); }
+    bool Uint(unsigned u)       { Prefix(kNumberType); return WriteUint(u); }
+    bool Int64(int64_t i64)     { Prefix(kNumberType); return WriteInt64(i64); }
+    bool Uint64(uint64_t u64)   { Prefix(kNumberType); return WriteUint64(u64); }
 
     //! Writes the given \c double value to the stream
     /*!
         \param d The value to be written.
         \return Whether it is succeed.
     */
-    bool Double(double d)       { Prefix(kNumberType); return EndValue(WriteDouble(d)); }
-
-    bool RawNumber(const Ch* str, SizeType length, bool copy = false) {
-        (void)copy;
-        Prefix(kNumberType);
-        return EndValue(WriteString(str, length));
-    }
+    bool Double(double d)       { Prefix(kNumberType); return WriteDouble(d); }
 
     bool String(const Ch* str, SizeType length, bool copy = false) {
         (void)copy;
         Prefix(kStringType);
-        return EndValue(WriteString(str, length));
+        return WriteString(str, length);
     }
 
 #if RAPIDJSON_HAS_STDSTRING
@@ -214,7 +165,10 @@ public:
         RAPIDJSON_ASSERT(level_stack_.GetSize() >= sizeof(Level));
         RAPIDJSON_ASSERT(!level_stack_.template Top<Level>()->inArray);
         level_stack_.template Pop<Level>(1);
-        return EndValue(WriteEndObject());
+        bool ret = WriteEndObject();
+        if (RAPIDJSON_UNLIKELY(level_stack_.Empty()))   // end of json text
+            os_->Flush();
+        return ret;
     }
 
     bool StartArray() {
@@ -228,7 +182,10 @@ public:
         RAPIDJSON_ASSERT(level_stack_.GetSize() >= sizeof(Level));
         RAPIDJSON_ASSERT(level_stack_.template Top<Level>()->inArray);
         level_stack_.template Pop<Level>(1);
-        return EndValue(WriteEndArray());
+        bool ret = WriteEndArray();
+        if (RAPIDJSON_UNLIKELY(level_stack_.Empty()))   // end of json text
+            os_->Flush();
+        return ret;
     }
     //@}
 
@@ -240,16 +197,6 @@ public:
     bool Key(const Ch* str) { return Key(str, internal::StrLen(str)); }
 
     //@}
-
-    //! Write a raw JSON value.
-    /*!
-        For user to write a stringified JSON as a value.
-
-        \param json A well-formed JSON value. It should not contain null character within [0, length - 1] range.
-        \param length Length of the json.
-        \param type Type of the root of json.
-    */
-    bool RawValue(const Ch* json, size_t length, Type type) { Prefix(type); return EndValue(WriteRawValue(json, length)); }
 
 protected:
     //! Information for each nested level
@@ -315,27 +262,11 @@ protected:
     }
 
     bool WriteDouble(double d) {
-        if (internal::Double(d).IsNanOrInf()) {
-            if (!(writeFlags & kWriteNanAndInfFlag))
-                return false;
-            if (internal::Double(d).IsNan()) {
-                PutReserve(*os_, 3);
-                PutUnsafe(*os_, 'N'); PutUnsafe(*os_, 'a'); PutUnsafe(*os_, 'N');
-                return true;
-            }
-            if (internal::Double(d).Sign()) {
-                PutReserve(*os_, 9);
-                PutUnsafe(*os_, '-');
-            }
-            else
-                PutReserve(*os_, 8);
-            PutUnsafe(*os_, 'I'); PutUnsafe(*os_, 'n'); PutUnsafe(*os_, 'f');
-            PutUnsafe(*os_, 'i'); PutUnsafe(*os_, 'n'); PutUnsafe(*os_, 'i'); PutUnsafe(*os_, 't'); PutUnsafe(*os_, 'y');
-            return true;
-        }
-
+        if (internal::Double(d).IsNanOrInf())
+            return false;
+        
         char buffer[25];
-        char* end = internal::dtoa(d, buffer, maxDecimalPlaces_);
+        char* end = internal::dtoa(d, buffer);
         PutReserve(*os_, static_cast<size_t>(end - buffer));
         for (char* p = buffer; p != end; ++p)
             PutUnsafe(*os_, static_cast<typename TargetEncoding::Ch>(*p));
@@ -425,15 +356,6 @@ protected:
     bool WriteStartArray()  { os_->Put('['); return true; }
     bool WriteEndArray()    { os_->Put(']'); return true; }
 
-    bool WriteRawValue(const Ch* json, size_t length) {
-        PutReserve(*os_, length);
-        for (size_t i = 0; i < length; i++) {
-            RAPIDJSON_ASSERT(json[i] != '\0');
-            PutUnsafe(*os_, json[i]);
-        }
-        return true;
-    }
-
     void Prefix(Type type) {
         (void)type;
         if (RAPIDJSON_LIKELY(level_stack_.GetSize() != 0)) { // this value is not at root
@@ -454,16 +376,8 @@ protected:
         }
     }
 
-    // Flush the value if it is the top level one.
-    bool EndValue(bool ret) {
-        if (RAPIDJSON_UNLIKELY(level_stack_.Empty()))   // end of json text
-            os_->Flush();
-        return ret;
-    }
-
     OutputStream* os_;
     internal::Stack<StackAllocator> level_stack_;
-    int maxDecimalPlaces_;
     bool hasRoot_;
 
 private:
@@ -508,28 +422,11 @@ inline bool Writer<StringBuffer>::WriteUint64(uint64_t u) {
 
 template<>
 inline bool Writer<StringBuffer>::WriteDouble(double d) {
-    if (internal::Double(d).IsNanOrInf()) {
-        // Note: This code path can only be reached if (RAPIDJSON_WRITE_DEFAULT_FLAGS & kWriteNanAndInfFlag).
-        if (!(kWriteDefaultFlags & kWriteNanAndInfFlag))
-            return false;
-        if (internal::Double(d).IsNan()) {
-            PutReserve(*os_, 3);
-            PutUnsafe(*os_, 'N'); PutUnsafe(*os_, 'a'); PutUnsafe(*os_, 'N');
-            return true;
-        }
-        if (internal::Double(d).Sign()) {
-            PutReserve(*os_, 9);
-            PutUnsafe(*os_, '-');
-        }
-        else
-            PutReserve(*os_, 8);
-        PutUnsafe(*os_, 'I'); PutUnsafe(*os_, 'n'); PutUnsafe(*os_, 'f');
-        PutUnsafe(*os_, 'i'); PutUnsafe(*os_, 'n'); PutUnsafe(*os_, 'i'); PutUnsafe(*os_, 't'); PutUnsafe(*os_, 'y');
-        return true;
-    }
+    if (internal::Double(d).IsNanOrInf())
+        return false;
     
     char *buffer = os_->Push(25);
-    char* end = internal::dtoa(d, buffer, maxDecimalPlaces_);
+    char* end = internal::dtoa(d, buffer);
     os_->Pop(static_cast<size_t>(25 - (end - buffer)));
     return true;
 }

@@ -31,11 +31,6 @@ RAPIDJSON_DIAG_PUSH
 RAPIDJSON_DIAG_OFF(effc++)
 #endif
 
-#ifdef _MSC_VER
-RAPIDJSON_DIAG_PUSH
-RAPIDJSON_DIAG_OFF(4512) // assignment operator could not be generated
-#endif
-
 #ifndef RAPIDJSON_REGEX_VERBOSE
 #define RAPIDJSON_REGEX_VERBOSE 0
 #endif
@@ -375,14 +370,14 @@ private:
     bool Eval(Stack<Allocator>& operandStack, Operator op) {
         switch (op) {
             case kConcatenation:
-                RAPIDJSON_ASSERT(operandStack.GetSize() >= sizeof(Frag) * 2);
-                {
+                if (operandStack.GetSize() >= sizeof(Frag) * 2) {
                     Frag e2 = *operandStack.template Pop<Frag>(1);
                     Frag e1 = *operandStack.template Pop<Frag>(1);
                     Patch(e1.out, e2.start);
                     *operandStack.template Push<Frag>() = Frag(e1.start, e2.out, Min(e1.minIndex, e2.minIndex));
+                    return true;
                 }
-                return true;
+                return false;
 
             case kAlternation:
                 if (operandStack.GetSize() >= sizeof(Frag) * 2) {
@@ -413,8 +408,7 @@ private:
                 }
                 return false;
 
-            default: 
-                RAPIDJSON_ASSERT(op == kOneOrMore);
+            case kOneOrMore:
                 if (operandStack.GetSize() >= sizeof(Frag)) {
                     Frag e = *operandStack.template Pop<Frag>(1);
                     SizeType s = NewState(kRegexInvalidState, e.start, 0);
@@ -423,12 +417,16 @@ private:
                     return true;
                 }
                 return false;
+
+            default:
+                return false;
         }
     }
 
     bool EvalQuantifier(Stack<Allocator>& operandStack, unsigned n, unsigned m) {
         RAPIDJSON_ASSERT(n <= m);
-        RAPIDJSON_ASSERT(operandStack.GetSize() >= sizeof(Frag));
+        if (operandStack.GetSize() < sizeof(Frag))
+            return false;
 
         if (n == 0) {
             if (m == 0)                             // a{0} not support
@@ -468,17 +466,17 @@ private:
     static SizeType Min(SizeType a, SizeType b) { return a < b ? a : b; }
 
     void CloneTopOperand(Stack<Allocator>& operandStack) {
-        const Frag src = *operandStack.template Top<Frag>(); // Copy constructor to prevent invalidation
-        SizeType count = stateCount_ - src.minIndex; // Assumes top operand contains states in [src->minIndex, stateCount_)
+        const Frag *src = operandStack.template Top<Frag>();
+        SizeType count = stateCount_ - src->minIndex; // Assumes top operand contains states in [src->minIndex, stateCount_)
         State* s = states_.template Push<State>(count);
-        memcpy(s, &GetState(src.minIndex), count * sizeof(State));
+        memcpy(s, &GetState(src->minIndex), count * sizeof(State));
         for (SizeType j = 0; j < count; j++) {
             if (s[j].out != kRegexInvalidState)
                 s[j].out += count;
             if (s[j].out1 != kRegexInvalidState)
                 s[j].out1 += count;
         }
-        *operandStack.template Push<Frag>() = Frag(src.start + count, src.out + count, src.minIndex + count);
+        *operandStack.template Push<Frag>() = Frag(src->start + count, src->out + count, src->minIndex + count);
         stateCount_ += count;
     }
 
@@ -644,7 +642,8 @@ private:
 
     // Return whether the added states is a match state
     bool AddState(Stack<Allocator>& l, SizeType index) const {
-        RAPIDJSON_ASSERT(index != kRegexInvalidState);
+        if (index == kRegexInvalidState)
+            return true;
 
         const State& s = GetState(index);
         if (s.out1 != kRegexInvalidState) { // Split
@@ -691,10 +690,6 @@ typedef GenericRegex<UTF8<> > Regex;
 RAPIDJSON_NAMESPACE_END
 
 #ifdef __clang__
-RAPIDJSON_DIAG_POP
-#endif
-
-#ifdef _MSC_VER
 RAPIDJSON_DIAG_POP
 #endif
 
