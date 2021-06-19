@@ -24,7 +24,7 @@ option ( UINT_ESPECIALLY "using custom ulong" OFF )
 option ( USING_LUAJIT "using luajit" OFF )
 option ( GC64 "using gc64" OFF )
 option ( LUAC_COMPATIBLE_FORMAT "compatible format" OFF )
-option ( PBC "using pbc" ON )
+#option ( PBC "using pbc" ON )
 
 find_path(XLUA_PROJECT_DIR NAMES SConstruct
     PATHS 
@@ -53,7 +53,7 @@ list(APPEND THIRDPART_INC  lua-rapidjson/include)
 set (THIRDPART_SRC ${THIRDPART_SRC} ${RAPIDJSON_SRC})
 #end lua-rapidjson
 
-if (NOT PBC)
+#if (NOT PBC)
 	#begin lua-profobuf
 	set (LPB_SRC 
 		lua-protobuf/pb.c
@@ -67,7 +67,7 @@ if (NOT PBC)
 	list(APPEND THIRDPART_INC lua-protobuf)
 	set (THIRDPART_SRC ${THIRDPART_SRC} ${LPB_SRC})
 	#end lua-protobuf
-else()
+#else()
 	#begin pbc
 	set (PBC_SRC 
 		pbc/src/alloc.c
@@ -101,7 +101,7 @@ else()
 	list(APPEND THIRDPART_INC pbc pbc/src)
 	set (THIRDPART_SRC ${THIRDPART_SRC} ${PBC_SRC})
 	#end pbc
-endif ()
+#endif ()
 
 #begin lpeg
 set ( LPEG_SRC
