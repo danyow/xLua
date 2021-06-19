@@ -111,3 +111,33 @@ Debug.Log("max:" + max(32, 12));
 
 平时也要谨记这答案，90%以上问题都可以在[FAQ](Assets/XLua/Doc/faq.md)里头找到答案。这些问题就别在群刷屏了。
 
+```git
+cd .\build\
+git update-index --chmod=+x make_android_lua53.bat         
+git update-index --chmod=+x make_android_lua53.sh          
+git update-index --chmod=+x make_android_lua53_arm64.sh    
+git update-index --chmod=+x make_android_lua54.sh          
+git update-index --chmod=+x make_android_luajit.sh       
+git update-index --chmod=+x make_android_luajit_arm64.sh   
+git update-index --chmod=+x make_ios_lua53.sh              
+git update-index --chmod=+x make_ios_lua54.sh              
+git update-index --chmod=+x make_ios_luajit.sh             
+git update-index --chmod=+x make_linux32_lua53.sh          
+git update-index --chmod=+x make_linux32_luajit.sh         
+git update-index --chmod=+x make_linux64_lua53.sh          
+git update-index --chmod=+x make_linux64_luajit.sh         
+git update-index --chmod=+x make_linux_lua54.sh            
+git update-index --chmod=+x make_nx64_lua53.bat            
+git update-index --chmod=+x make_nx64_luajit_gc64.bat    
+git update-index --chmod=+x make_osx_lua53.sh              
+git update-index --chmod=+x make_osx_lua54.sh              
+git update-index --chmod=+x make_osx_luajit.sh             
+git update-index --chmod=+x make_uwp.bat                   
+git update-index --chmod=+x make_uwp_lua54.bat             
+git update-index --chmod=+x make_win32_lua53.bat           
+git update-index --chmod=+x make_win32_luajit.bat          
+git update-index --chmod=+x make_win64_lua53.bat           
+git update-index --chmod=+x make_win64_luajit.bat          
+git update-index --chmod=+x make_win64_luajit_gc64.bat     
+git update-index --chmod=+x make_win_lua54.bat
+```
